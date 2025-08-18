@@ -4,16 +4,76 @@ from google import genai
 from google.genai import types
 from google.api_core import retry
 
-# Title
-st.set_page_config(page_title="🎬 Gemini YouTube Summarizer")
+# Set dark theme via Streamlit config (in .streamlit/config.toml or programmatically)
+# We'll add a simple CSS override here for dark mode and centering
+
+# Inject CSS for dark mode and centering title & inputs colors
+st.markdown(
+    """
+    <style>
+    /* Center the main title */
+    .css-1v3fvcr h1 {
+        text-align: center;
+        color: #e0e0e0;
+        margin-bottom: 40px;
+    }
+    /* Sidebar background & text */
+    .css-1d391kg {
+        background-color: #121212;
+        color: #ddd !important;
+    }
+    /* Sidebar inputs label color */
+    label, .stRadio > label, .css-1x8cf1d {
+        color: #ddd !important;
+    }
+    /* Main area background */
+    .css-18e3th9 {
+        background-color: #121212;
+    }
+    /* Main text color */
+    .css-1d391kg, .css-18e3th9 {
+        color: #ddd;
+    }
+    /* Buttons */
+    .stButton>button {
+        background-color: #333 !important;
+        color: #ddd !important;
+        border: none !important;
+    }
+    .stButton>button:hover {
+        background-color: #555 !important;
+        color: white !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+# Set page config with wide layout (optional)
+st.set_page_config(page_title="🎬 Gemini YouTube Summarizer", layout="wide")
+
+# Title centered in main area
 st.title("🎥 Gemini YouTube Video Summarizer")
 
-# Input Google API Key securely
-api_key = st.text_input("🔑 Enter your Google API Key", type="password")
+# Sidebar inputs
+with st.sidebar:
+    st.header("Settings")
 
-# Use secret if set
-if not api_key and "GOOGLE_API_KEY" in st.secrets:
-    api_key = st.secrets["GOOGLE_API_KEY"]
+    # Input Google API Key securely
+    api_key = st.text_input("🔑 Enter your Google API Key", type="password")
+
+    # Use secret if set
+    if not api_key and "GOOGLE_API_KEY" in st.secrets:
+        api_key = st.secrets["GOOGLE_API_KEY"]
+
+    youtube_url = st.text_input("📺 Enter YouTube video URL")
+
+    task = st.radio(
+        "🤖 Choose what you want to do:",
+        ["Summary (3 sentences)", "Full transcription", "Main points", "Brief explanation"]
+    )
+
+    fetch = st.button("🚀 Fetch")
 
 # Proceed only if API key is available
 if api_key:
@@ -27,20 +87,11 @@ if api_key:
             genai.models.Models.generate_content
         )
 
-    # Input fields
-    youtube_url = st.text_input("📺 Enter a public YouTube video URL")
-
-    task = st.radio(
-        "🤖 Choose what you want to do:",
-        ["Summary (3 sentences)", "Full transcription", "Main points", "Brief explanation"]
-    )
-
-    if st.button("🚀 Fetch"):
+    if fetch:
         if not youtube_url:
-            st.warning("Please enter a YouTube URL.")
+            st.sidebar.warning("Please enter a YouTube URL.")
         else:
             with st.spinner("Processing..."):
-                # Map task to actual prompt
                 prompt_map = {
                     "Summary (3 sentences)": "Please summarize the video in 3 sentences.",
                     "Full transcription": "Provide a full transcription of the video.",
@@ -67,4 +118,4 @@ if api_key:
                 except Exception as e:
                     st.error(f"❌ Error: {str(e)}")
 else:
-    st.warning("⚠️ Please enter your Google API key to continue.")
+    st.sidebar.warning("⚠️ Please enter your Google API key to continue.")
