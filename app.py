@@ -92,10 +92,8 @@ def create_pdf_file(text):
     pdf.set_font("Arial", size=12)
     for line in text.split('\n'):
         pdf.multi_cell(0, 10, line)
-    f = io.BytesIO()
-    pdf.output(f)
-    f.seek(0)
-    return f
+    pdf_bytes = pdf.output(dest='S').encode('latin1')  # << Fixed part here
+    return io.BytesIO(pdf_bytes)
 
 # Main logic
 if api_key:
