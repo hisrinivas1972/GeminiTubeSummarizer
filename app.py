@@ -10,24 +10,30 @@ from docx import Document
 st.markdown(
     """
     <style>
+    /* Center the main title */
     .css-1v3fvcr h1 {
         text-align: center;
         color: #e0e0e0;
         margin-bottom: 40px;
     }
+    /* Sidebar background & text */
     .css-1d391kg {
         background-color: #121212;
         color: #ddd !important;
     }
+    /* Sidebar labels and radio text */
     label, .stRadio > label, .css-1x8cf1d {
         color: #ddd !important;
     }
+    /* Main area background */
     .css-18e3th9 {
         background-color: #121212;
     }
+    /* Main text color */
     .css-1d391kg, .css-18e3th9 {
         color: #ddd;
     }
+    /* Buttons */
     .stButton>button {
         background-color: #333 !important;
         color: #ddd !important;
@@ -37,6 +43,11 @@ st.markdown(
         background-color: #555 !important;
         color: white !important;
     }
+    /* Streamlit markdown headings in sidebar */
+    .css-1aumxhk h4 {
+        color: #ddd !important;
+        margin-bottom: 5px;
+    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -45,26 +56,23 @@ st.markdown(
 st.set_page_config(page_title="🎬 Gemini YouTube Summarizer", layout="wide")
 st.title("🎥 Gemini YouTube Video Summarizer")
 
-# Sidebar inputs
+# Sidebar inputs with separated markdown labels for better emoji+text styling
 with st.sidebar:
     st.header("Settings")
 
-    api_key = st.text_input("🔑 Enter your Google API Key", type="password")
+    st.markdown("#### 🔑 Enter your Google API Key", unsafe_allow_html=True)
+    api_key = st.text_input("", type="password")
 
     if not api_key and "GOOGLE_API_KEY" in st.secrets:
         api_key = st.secrets["GOOGLE_API_KEY"]
 
-    youtube_url = st.text_input(
-        "📺 Enter YouTube video URL",
-        placeholder="e.g. https://youtube.com/shorts/aAznmTycQyM?feature=share"
-    )
+    st.markdown("#### 📺 Enter YouTube video URL", unsafe_allow_html=True)
+    youtube_url = st.text_input("", placeholder="e.g. https://youtube.com/shorts/aAznmTycQyM?feature=share")
 
-    task = st.radio(
-        "🤖 Choose what you want to do:",
-        ["Summary (3 sentences)", "Full transcription", "Main points", "Brief explanation"]
-    )
+    st.markdown("#### 🤖 Choose what you want to do:", unsafe_allow_html=True)
+    task = st.radio("", ["Summary (3 sentences)", "Full transcription", "Main points", "Brief explanation"])
 
-    st.caption("ℹ️ Example test URL:\n[https://youtube.com/shorts/aAznmTycQyM](https://youtube.com/shorts/aAznmTycQyM)")
+    st.caption("ℹ️ Example test URL: [https://youtube.com/shorts/aAznmTycQyM](https://youtube.com/shorts/aAznmTycQyM)")
 
 # Fetch button
 fetch = st.button("🚀 Fetch")
