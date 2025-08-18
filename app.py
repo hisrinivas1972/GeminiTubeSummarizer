@@ -6,75 +6,92 @@ from google.genai import types
 from google.api_core import retry
 from docx import Document
 
-# Inject full-dark CSS styles
+# --- Dark theme CSS + Centered Title ---
 st.markdown(
     """
     <style>
-    .stApp {
-        background-color: #000000;
-    }
-    .css-18e3th9, .css-1d391kg {
-        background-color: #0a0a0a;
+    .css-1v3fvcr h1 {
+        text-align: center;
         color: #e0e0e0;
+        margin-bottom: 40px;
     }
-    label, .stTextInput>div>div>input, .stRadio label {
-        color: #e0e0e0 !important;
+    .css-1d391kg {
+        background-color: #121212;
+        color: #ddd !important;
     }
-    .stTextInput>div>div>input {
-        background-color: #1a1a1a !important;
-        color: #f5f5f5 !important;
+    label, .stRadio > label, .css-1x8cf1d {
+        color: #ddd !important;
     }
-    .stRadio > label {
-        color: #f5f5f5 !important;
+    .css-18e3th9 {
+        background-color: #121212;
     }
-    .stButton > button {
+    .css-1d391kg, .css-18e3th9 {
+        color: #ddd;
+    }
+    .stButton>button {
         background-color: #333 !important;
-        color: #e0e0e0 !important;
+        color: #ddd !important;
+        border: none !important;
     }
-    .stButton > button:hover {
+    .stButton>button:hover {
         background-color: #555 !important;
         color: white !important;
     }
     </style>
     """,
-    unsafe_allow_html=True
+    unsafe_allow_html=True,
 )
 
 st.set_page_config(page_title="🎬 Gemini YouTube Summarizer", layout="wide")
 st.title("🎥 Gemini YouTube Video Summarizer")
 
-# Sidebar for input controls
+# Sidebar inputs
 with st.sidebar:
     st.header("Settings")
 
-    st.markdown("### 🔑 Enter your Google API Key")
-    api_key = st.text_input("", type="password")
+    api_key = st.text_input("🔑 Enter your Google API Key", type="password")
 
     if not api_key and "GOOGLE_API_KEY" in st.secrets:
         api_key = st.secrets["GOOGLE_API_KEY"]
 
-    st.markdown("### 📺 Enter YouTube video URL")
-    youtube_url = st.text_input("", placeholder="e.g. https://youtube.com/shorts/...")
+    youtube_url = st.text_input(
+        "📺 Enter YouTube video URL",
+        placeholder="e.g. https://youtube.com/shorts/aAznmTycQyM?feature=share"
+    )
 
-    st.markdown("### 🤖 Choose your task")
-    task = st.radio("", ["Summary (3 sentences)", "Full transcription", "Main points", "Brief explanation"])
+    task = st.radio(
+        "🤖 Choose what you want to do:",
+        ["Summary (3 sentences)", "Full transcription", "Main points", "Brief explanation"]
+    )
 
-# Main fetch button
+    st.caption("ℹ️ Example test URL:\n[https://youtube.com/shorts/aAznmTycQyM](https://youtube.com/shorts/aAznmTycQyM)")
+
+# Fetch button
 fetch = st.button("🚀 Fetch")
 
-# File generators
-def create_txt_file(txt): return io.BytesIO(txt.encode('utf-8'))
-def create_docx_file(txt):
-    doc = Document()
-    doc.add_paragraph(txt)
-    f = io.BytesIO(); doc.save(f); f.seek(0); return f
+# Helper functions
+def create_txt_file(text):
+    return io.BytesIO(text.encode('utf-8'))
 
+def create_docx_file(text):
+    doc = Document()
+    doc.add_paragraph(text)
+    f = io.BytesIO()
+    doc.save(f)
+    f.seek(0)
+    return f
+
+# Main logic
 if api_key:
     os.environ["GOOGLE_API_KEY"] = api_key
     client = genai.Client()
-    is_retriable = lambda e: isinstance(e, genai.errors.APIError) and e.code in {429, 503}
+
+    # Retry logic for quota errors
+    is_retriable = lambda e: (isinstance(e, genai.errors.APIError) and e.code in {429, 503})
     if not hasattr(genai.models.Models.generate_content, '__wrapped__'):
-        genai.models.Models.generate_content = retry.Retry(predicate=is_retriable)(genai.models.Models.generate_content)
+        genai.models.Models.generate_content = retry.Retry(predicate=is_retriable)(
+            genai.models.Models.generate_content
+        )
 
     if fetch:
         if not youtube_url:
@@ -87,20 +104,43 @@ if api_key:
                     "Main points": "What are the key points or takeaways from this video?",
                     "Brief explanation": "Briefly explain what this video is about."
                 }
-                user_prompt = prompt_map.get(task, prompt_map["Summary (3 sentences)"])
+
+                user_prompt = prompt_map.get(task, "Please summarize the video.")
+
                 try:
                     response = client.models.generate_content(
-                        model="models/gemini-2.0-flash",
-                        contents=types.Content(parts=[types.Part(file_data=types.FileData(file_uri=youtube_url)), types.Part(text=user_prompt)])
+                        model='models/gemini-2.0-flash',
+                        contents=types.Content(
+                            parts=[
+                                types.Part(file_data=types.FileData(file_uri=youtube_url)),
+                                types.Part(text=user_prompt)
+                            ]
+                        )
                     )
                     text = response.text
+
                     st.success("✅ Done!")
                     st.markdown(f"### 📋 {task}")
                     st.write(text)
 
-                    st.download_button("📄 Download as TXT", data=create_txt_file(text), file_name="output.txt", mime="text/plain")
-                    st.download_button("📄 Download as DOCX", data=create_docx_file(text), file_name="output.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+                    # Downloads
+                    txt_file = create_txt_file(text)
+                    docx_file = create_docx_file(text)
+
+                    st.download_button(
+                        label="📄 Download as TXT",
+                        data=txt_file,
+                        file_name="output.txt",
+                        mime="text/plain"
+                    )
+                    st.download_button(
+                        label="📄 Download as DOCX",
+                        data=docx_file,
+                        file_name="output.docx",
+                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                    )
+
                 except Exception as e:
-                    st.error(f"❌ Error: {e}")
+                    st.error(f"❌ Error: {str(e)}")
 else:
     st.sidebar.warning("⚠️ Please enter your Google API key to continue.")
