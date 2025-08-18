@@ -1,4 +1,4 @@
 streamlit
 google-genai==1.7.0
 python-docx
-fpdf
+fpdf2
