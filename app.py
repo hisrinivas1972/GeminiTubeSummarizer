@@ -46,7 +46,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-st.set_page_config(page_title="🎬 Gemini YouTube & Video Summarizer", layout="wide")
+st.set_page_config(page_title="🎬 Gemini Video Summarizer", layout="wide")
 st.title("🎥 Gemini Video Summarizer")
 
 # Sidebar
@@ -63,24 +63,42 @@ with st.sidebar:
     task = st.radio("", ["Summary (3 sentences)", "Full transcription", "Main points", "Brief explanation"])
 
 # Create tabs
-tab1, tab2 = st.tabs(["📺 YouTube Link", "📁 Upload Video"])
+tab1, tab2, tab3 = st.tabs(["📺 YouTube Link", "📁 Upload Video", "📂 Google Drive Link"])
 
-# Shared fetch flag
 fetch = False
+video_source = None
+file_uri = None
 
 # Tab 1: YouTube
 with tab1:
-    youtube_url = st.text_input("📺 Enter YouTube URL", placeholder="e.g. https://youtube.com/shorts/aAznmTycQyM")
+    youtube_url = st.text_input("📺 Enter YouTube URL", placeholder="e.g. https://youtube.com/watch?v=...")
     fetch_youtube = st.button("🚀 Fetch from YouTube")
     if fetch_youtube:
-        fetch = "youtube"
+        fetch = True
+        video_source = "youtube"
+        file_uri = youtube_url
 
-# Tab 2: Upload
+# Tab 2: Upload (Not supported directly)
 with tab2:
-    uploaded_video = st.file_uploader("📁 Upload a video file (MP4, MOV, etc.)", type=["mp4", "mov", "avi", "mkv"])
-    fetch_upload = st.button("🚀 Fetch from Uploaded Video")
-    if fetch_upload:
-        fetch = "upload"
+    st.warning("⚠️ Gemini cannot process raw uploaded video files directly. Use YouTube or Google Drive.")
+    uploaded_video = st.file_uploader("📁 Upload a video file", type=["mp4", "mov", "avi", "mkv"])
+
+# Tab 3: Google Drive
+with tab3:
+    gdrive_url = st.text_input("📂 Paste Google Drive public link")
+    fetch_drive = st.button("🚀 Fetch from Google Drive")
+
+    def convert_drive_link(drive_url):
+        try:
+            file_id = drive_url.split("/d/")[1].split("/")[0]
+            return f"https://drive.google.com/uc?export=download&id={file_id}"
+        except Exception:
+            return None
+
+    if fetch_drive:
+        fetch = True
+        video_source = "gdrive"
+        file_uri = convert_drive_link(gdrive_url)
 
 # Helper functions
 def create_txt_file(text):
@@ -106,71 +124,53 @@ if api_key:
         )
 
     if fetch:
-        with st.spinner("Processing..."):
-            prompt_map = {
-                "Summary (3 sentences)": "Please summarize the video in 3 sentences.",
-                "Full transcription": "Provide a full transcription of the video.",
-                "Main points": "What are the key points or takeaways from this video?",
-                "Brief explanation": "Briefly explain what this video is about."
-            }
+        if not file_uri:
+            st.error("❌ Invalid or missing video link.")
+        else:
+            with st.spinner("Processing with Gemini..."):
+                prompt_map = {
+                    "Summary (3 sentences)": "Please summarize the video in 3 sentences.",
+                    "Full transcription": "Provide a full transcription of the video.",
+                    "Main points": "What are the key points or takeaways from this video?",
+                    "Brief explanation": "Briefly explain what this video is about."
+                }
 
-            user_prompt = prompt_map.get(task, "Please summarize the video.")
+                user_prompt = prompt_map.get(task, "Please summarize the video.")
 
-            try:
-                # YouTube path
-                if fetch == "youtube":
-                    if not youtube_url:
-                        st.warning("Please enter a YouTube URL.")
-                    else:
-                        response = client.models.generate_content(
-                            model='models/gemini-2.0-flash',
-                            contents=types.Content(
-                                parts=[
-                                    types.Part(file_data=types.FileData(file_uri=youtube_url)),
-                                    types.Part(text=user_prompt)
-                                ]
-                            )
+                try:
+                    response = client.models.generate_content(
+                        model='models/gemini-2.0-flash',
+                        contents=types.Content(
+                            parts=[
+                                types.Part(file_data=types.FileData(file_uri=file_uri)),
+                                types.Part(text=user_prompt)
+                            ]
                         )
+                    )
+                    text = response.text
 
-                # Uploaded video path
-                elif fetch == "upload":
-                    if not uploaded_video:
-                        st.warning("Please upload a video file.")
-                    else:
-                        video_bytes = uploaded_video.read()
-                        response = client.models.generate_content(
-                            model='models/gemini-2.0-flash',
-                            contents=types.Content(
-                                parts=[
-                                    types.Part(file_data=types.FileData(mime_type=uploaded_video.type, data=video_bytes)),
-                                    types.Part(text=user_prompt)
-                                ]
-                            )
-                        )
+                    st.success("✅ Done!")
+                    st.markdown(f"### 📋 {task}")
+                    st.write(text)
 
-                text = response.text
-                st.success("✅ Done!")
-                st.markdown(f"### 📋 {task}")
-                st.write(text)
+                    # Downloads
+                    txt_file = create_txt_file(text)
+                    docx_file = create_docx_file(text)
 
-                # Downloads
-                txt_file = create_txt_file(text)
-                docx_file = create_docx_file(text)
+                    st.download_button(
+                        label="📄 Download as TXT",
+                        data=txt_file,
+                        file_name="output.txt",
+                        mime="text/plain"
+                    )
+                    st.download_button(
+                        label="📄 Download as DOCX",
+                        data=docx_file,
+                        file_name="output.docx",
+                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                    )
 
-                st.download_button(
-                    label="📄 Download as TXT",
-                    data=txt_file,
-                    file_name="output.txt",
-                    mime="text/plain"
-                )
-                st.download_button(
-                    label="📄 Download as DOCX",
-                    data=docx_file,
-                    file_name="output.docx",
-                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                )
-
-            except Exception as e:
-                st.error(f"❌ Error: {str(e)}")
+                except Exception as e:
+                    st.error(f"❌ Error: {str(e)}")
 else:
     st.sidebar.warning("⚠️ Please enter your Google API key to continue.")
