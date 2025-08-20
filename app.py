@@ -10,30 +10,24 @@ from docx import Document
 st.markdown(
     """
     <style>
-    /* Center the main title */
     .css-1v3fvcr h1 {
         text-align: center;
         color: #e0e0e0;
         margin-bottom: 40px;
     }
-    /* Sidebar background & text */
     .css-1d391kg {
         background-color: #121212;
         color: #ddd !important;
     }
-    /* Sidebar labels and radio text */
     label, .stRadio > label, .css-1x8cf1d {
         color: #ddd !important;
     }
-    /* Main area background */
     .css-18e3th9 {
         background-color: #121212;
     }
-    /* Main text color */
     .css-1d391kg, .css-18e3th9 {
         color: #ddd;
     }
-    /* Buttons */
     .stButton>button {
         background-color: #333 !important;
         color: #ddd !important;
@@ -43,7 +37,6 @@ st.markdown(
         background-color: #555 !important;
         color: white !important;
     }
-    /* Streamlit markdown headings in sidebar */
     .css-1aumxhk h4 {
         color: #ddd !important;
         margin-bottom: 5px;
@@ -53,10 +46,10 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-st.set_page_config(page_title="🎬 Gemini YouTube Summarizer", layout="wide")
-st.title("🎥 Gemini YouTube Video Summarizer")
+st.set_page_config(page_title="🎬 Gemini YouTube & Video Summarizer", layout="wide")
+st.title("🎥 Gemini Video Summarizer")
 
-# Sidebar inputs with separated markdown labels for better emoji+text styling
+# Sidebar
 with st.sidebar:
     st.header("Settings")
 
@@ -66,16 +59,28 @@ with st.sidebar:
     if not api_key and "GOOGLE_API_KEY" in st.secrets:
         api_key = st.secrets["GOOGLE_API_KEY"]
 
-    st.markdown("#### 📺 Enter YouTube video URL", unsafe_allow_html=True)
-    youtube_url = st.text_input("", placeholder="e.g. https://youtube.com/shorts/aAznmTycQyM?feature=share")
-
     st.markdown("#### 🤖 Choose what you want to do:", unsafe_allow_html=True)
     task = st.radio("", ["Summary (3 sentences)", "Full transcription", "Main points", "Brief explanation"])
 
-    st.caption("ℹ️ Example test URL: [https://youtube.com/shorts/aAznmTycQyM](https://youtube.com/shorts/aAznmTycQyM)")
+# Create tabs
+tab1, tab2 = st.tabs(["📺 YouTube Link", "📁 Upload Video"])
 
-# Fetch button
-fetch = st.button("🚀 Fetch")
+# Shared fetch flag
+fetch = False
+
+# Tab 1: YouTube
+with tab1:
+    youtube_url = st.text_input("📺 Enter YouTube URL", placeholder="e.g. https://youtube.com/shorts/aAznmTycQyM")
+    fetch_youtube = st.button("🚀 Fetch from YouTube")
+    if fetch_youtube:
+        fetch = "youtube"
+
+# Tab 2: Upload
+with tab2:
+    uploaded_video = st.file_uploader("📁 Upload a video file (MP4, MOV, etc.)", type=["mp4", "mov", "avi", "mkv"])
+    fetch_upload = st.button("🚀 Fetch from Uploaded Video")
+    if fetch_upload:
+        fetch = "upload"
 
 # Helper functions
 def create_txt_file(text):
@@ -94,7 +99,6 @@ if api_key:
     os.environ["GOOGLE_API_KEY"] = api_key
     client = genai.Client()
 
-    # Retry logic for quota errors
     is_retriable = lambda e: (isinstance(e, genai.errors.APIError) and e.code in {429, 503})
     if not hasattr(genai.models.Models.generate_content, '__wrapped__'):
         genai.models.Models.generate_content = retry.Retry(predicate=is_retriable)(
@@ -102,53 +106,71 @@ if api_key:
         )
 
     if fetch:
-        if not youtube_url:
-            st.sidebar.warning("Please enter a YouTube URL.")
-        else:
-            with st.spinner("Processing..."):
-                prompt_map = {
-                    "Summary (3 sentences)": "Please summarize the video in 3 sentences.",
-                    "Full transcription": "Provide a full transcription of the video.",
-                    "Main points": "What are the key points or takeaways from this video?",
-                    "Brief explanation": "Briefly explain what this video is about."
-                }
+        with st.spinner("Processing..."):
+            prompt_map = {
+                "Summary (3 sentences)": "Please summarize the video in 3 sentences.",
+                "Full transcription": "Provide a full transcription of the video.",
+                "Main points": "What are the key points or takeaways from this video?",
+                "Brief explanation": "Briefly explain what this video is about."
+            }
 
-                user_prompt = prompt_map.get(task, "Please summarize the video.")
+            user_prompt = prompt_map.get(task, "Please summarize the video.")
 
-                try:
-                    response = client.models.generate_content(
-                        model='models/gemini-2.0-flash',
-                        contents=types.Content(
-                            parts=[
-                                types.Part(file_data=types.FileData(file_uri=youtube_url)),
-                                types.Part(text=user_prompt)
-                            ]
+            try:
+                # YouTube path
+                if fetch == "youtube":
+                    if not youtube_url:
+                        st.warning("Please enter a YouTube URL.")
+                    else:
+                        response = client.models.generate_content(
+                            model='models/gemini-2.0-flash',
+                            contents=types.Content(
+                                parts=[
+                                    types.Part(file_data=types.FileData(file_uri=youtube_url)),
+                                    types.Part(text=user_prompt)
+                                ]
+                            )
                         )
-                    )
-                    text = response.text
 
-                    st.success("✅ Done!")
-                    st.markdown(f"### 📋 {task}")
-                    st.write(text)
+                # Uploaded video path
+                elif fetch == "upload":
+                    if not uploaded_video:
+                        st.warning("Please upload a video file.")
+                    else:
+                        video_bytes = uploaded_video.read()
+                        response = client.models.generate_content(
+                            model='models/gemini-2.0-flash',
+                            contents=types.Content(
+                                parts=[
+                                    types.Part(file_data=types.FileData(mime_type=uploaded_video.type, data=video_bytes)),
+                                    types.Part(text=user_prompt)
+                                ]
+                            )
+                        )
 
-                    # Downloads
-                    txt_file = create_txt_file(text)
-                    docx_file = create_docx_file(text)
+                text = response.text
+                st.success("✅ Done!")
+                st.markdown(f"### 📋 {task}")
+                st.write(text)
 
-                    st.download_button(
-                        label="📄 Download as TXT",
-                        data=txt_file,
-                        file_name="output.txt",
-                        mime="text/plain"
-                    )
-                    st.download_button(
-                        label="📄 Download as DOCX",
-                        data=docx_file,
-                        file_name="output.docx",
-                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                    )
+                # Downloads
+                txt_file = create_txt_file(text)
+                docx_file = create_docx_file(text)
 
-                except Exception as e:
-                    st.error(f"❌ Error: {str(e)}")
+                st.download_button(
+                    label="📄 Download as TXT",
+                    data=txt_file,
+                    file_name="output.txt",
+                    mime="text/plain"
+                )
+                st.download_button(
+                    label="📄 Download as DOCX",
+                    data=docx_file,
+                    file_name="output.docx",
+                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                )
+
+            except Exception as e:
+                st.error(f"❌ Error: {str(e)}")
 else:
     st.sidebar.warning("⚠️ Please enter your Google API key to continue.")
