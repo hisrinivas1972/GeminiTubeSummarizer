@@ -5,100 +5,47 @@ from google import genai
 from google.genai import types
 from google.api_core import retry
 from docx import Document
+import whisper
+import tempfile
+import ffmpeg
 
-# --- Dark theme CSS + Centered Title ---
-st.markdown(
-    """
-    <style>
-    .css-1v3fvcr h1 {
-        text-align: center;
-        color: #e0e0e0;
-        margin-bottom: 40px;
-    }
-    .css-1d391kg {
-        background-color: #121212;
-        color: #ddd !important;
-    }
-    label, .stRadio > label, .css-1x8cf1d {
-        color: #ddd !important;
-    }
-    .css-18e3th9 {
-        background-color: #121212;
-    }
-    .css-1d391kg, .css-18e3th9 {
-        color: #ddd;
-    }
-    .stButton>button {
-        background-color: #333 !important;
-        color: #ddd !important;
-        border: none !important;
-    }
-    .stButton>button:hover {
-        background-color: #555 !important;
-        color: white !important;
-    }
-    .css-1aumxhk h4 {
-        color: #ddd !important;
-        margin-bottom: 5px;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
+# Initialize Whisper model once (small or base recommended for speed)
+@st.cache_resource
+def load_whisper_model():
+    return whisper.load_model("base")
 
-st.set_page_config(page_title="🎬 Gemini Video Summarizer", layout="wide")
-st.title("🎥 Gemini Video Summarizer")
+model = load_whisper_model()
 
-# Sidebar
+st.set_page_config(page_title="Gemini + Whisper Video Summarizer", layout="wide")
+st.title("🎥 Gemini + Whisper Video Summarizer")
+
+# Sidebar for Google API Key and task
 with st.sidebar:
     st.header("Settings")
-
-    st.markdown("#### 🔑 Enter your Google API Key", unsafe_allow_html=True)
-    api_key = st.text_input("", type="password")
-
+    api_key = st.text_input("Google API Key", type="password")
     if not api_key and "GOOGLE_API_KEY" in st.secrets:
         api_key = st.secrets["GOOGLE_API_KEY"]
 
-    st.markdown("#### 🤖 Choose what you want to do:", unsafe_allow_html=True)
-    task = st.radio("", ["Summary (3 sentences)", "Full transcription", "Main points", "Brief explanation"])
+    task = st.radio("Choose task:", ["Summary (3 sentences)", "Full transcription", "Main points", "Brief explanation"])
 
-# Create tabs
-tab1, tab2, tab3 = st.tabs(["📺 YouTube Link", "📁 Upload Video", "📂 Google Drive Link"])
+# Tabs for input method
+tab1, tab2 = st.tabs(["📺 YouTube URL", "📁 Upload Video"])
 
 fetch = False
-video_source = None
-file_uri = None
+text_output = ""
 
-# Tab 1: YouTube
 with tab1:
-    youtube_url = st.text_input("📺 Enter YouTube URL", placeholder="e.g. https://youtube.com/watch?v=...")
-    fetch_youtube = st.button("🚀 Fetch from YouTube")
-    if fetch_youtube:
+    youtube_url = st.text_input("YouTube URL", placeholder="https://youtube.com/watch?v=...")
+    if st.button("🚀 Fetch from YouTube"):
         fetch = True
         video_source = "youtube"
         file_uri = youtube_url
 
-# Tab 2: Upload (Not supported directly)
 with tab2:
-    st.warning("⚠️ Gemini cannot process raw uploaded video files directly. Use YouTube or Google Drive.")
-    uploaded_video = st.file_uploader("📁 Upload a video file", type=["mp4", "mov", "avi", "mkv"])
-
-# Tab 3: Google Drive
-with tab3:
-    gdrive_url = st.text_input("📂 Paste Google Drive public link")
-    fetch_drive = st.button("🚀 Fetch from Google Drive")
-
-    def convert_drive_link(drive_url):
-        try:
-            file_id = drive_url.split("/d/")[1].split("/")[0]
-            return f"https://drive.google.com/uc?export=download&id={file_id}"
-        except Exception:
-            return None
-
-    if fetch_drive:
+    uploaded_file = st.file_uploader("Upload video file", type=["mp4", "mov", "avi", "mkv"])
+    if uploaded_file is not None and st.button("🚀 Transcribe & Summarize Upload"):
         fetch = True
-        video_source = "gdrive"
-        file_uri = convert_drive_link(gdrive_url)
+        video_source = "upload"
 
 # Helper functions
 def create_txt_file(text):
@@ -112,11 +59,17 @@ def create_docx_file(text):
     f.seek(0)
     return f
 
+# Transcribe video locally with Whisper
+def transcribe_video(file_path):
+    result = model.transcribe(file_path)
+    return result["text"]
+
 # Main logic
 if api_key:
     os.environ["GOOGLE_API_KEY"] = api_key
     client = genai.Client()
 
+    # Retry logic for Gemini
     is_retriable = lambda e: (isinstance(e, genai.errors.APIError) and e.code in {429, 503})
     if not hasattr(genai.models.Models.generate_content, '__wrapped__'):
         genai.models.Models.generate_content = retry.Retry(predicate=is_retriable)(
@@ -124,20 +77,18 @@ if api_key:
         )
 
     if fetch:
-        if not file_uri:
-            st.error("❌ Invalid or missing video link.")
-        else:
-            with st.spinner("Processing with Gemini..."):
-                prompt_map = {
-                    "Summary (3 sentences)": "Please summarize the video in 3 sentences.",
-                    "Full transcription": "Provide a full transcription of the video.",
-                    "Main points": "What are the key points or takeaways from this video?",
-                    "Brief explanation": "Briefly explain what this video is about."
-                }
+        prompt_map = {
+            "Summary (3 sentences)": "Please summarize the video in 3 sentences.",
+            "Full transcription": "Provide a full transcription of the video.",
+            "Main points": "What are the key points or takeaways from this video?",
+            "Brief explanation": "Briefly explain what this video is about."
+        }
+        user_prompt = prompt_map.get(task, "Please summarize the video.")
 
-                user_prompt = prompt_map.get(task, "Please summarize the video.")
-
-                try:
+        try:
+            if video_source == "youtube":
+                # Use Gemini directly on YouTube URL
+                with st.spinner("Processing YouTube video with Gemini..."):
                     response = client.models.generate_content(
                         model='models/gemini-2.0-flash',
                         contents=types.Content(
@@ -147,30 +98,45 @@ if api_key:
                             ]
                         )
                     )
-                    text = response.text
+                    text_output = response.text
 
-                    st.success("✅ Done!")
-                    st.markdown(f"### 📋 {task}")
-                    st.write(text)
+            elif video_source == "upload":
+                # Save uploaded file temporarily
+                with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp_file:
+                    tmp_file.write(uploaded_file.read())
+                    tmp_filepath = tmp_file.name
 
-                    # Downloads
-                    txt_file = create_txt_file(text)
-                    docx_file = create_docx_file(text)
+                with st.spinner("Transcribing uploaded video with Whisper..."):
+                    transcript = transcribe_video(tmp_filepath)
 
-                    st.download_button(
-                        label="📄 Download as TXT",
-                        data=txt_file,
-                        file_name="output.txt",
-                        mime="text/plain"
+                # Remove temp file
+                os.remove(tmp_filepath)
+
+                # Send transcript text to Gemini for further processing
+                with st.spinner("Processing transcript with Gemini..."):
+                    response = client.models.generate_content(
+                        model='models/gemini-2.0-flash',
+                        contents=types.Content(
+                            parts=[
+                                types.Part(text=f"{user_prompt}\n\nTranscript:\n{transcript}")
+                            ]
+                        )
                     )
-                    st.download_button(
-                        label="📄 Download as DOCX",
-                        data=docx_file,
-                        file_name="output.docx",
-                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                    )
+                    text_output = response.text
 
-                except Exception as e:
-                    st.error(f"❌ Error: {str(e)}")
+            st.success("✅ Done!")
+            st.markdown(f"### 📋 {task}")
+            st.write(text_output)
+
+            # Download buttons
+            txt_file = create_txt_file(text_output)
+            docx_file = create_docx_file(text_output)
+
+            st.download_button("📄 Download TXT", data=txt_file, file_name="output.txt", mime="text/plain")
+            st.download_button("📄 Download DOCX", data=docx_file, file_name="output.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+
+        except Exception as e:
+            st.error(f"❌ Error: {str(e)}")
+
 else:
     st.sidebar.warning("⚠️ Please enter your Google API key to continue.")
