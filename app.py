@@ -7,19 +7,17 @@ from google.api_core import retry
 from docx import Document
 import whisper
 import tempfile
-import ffmpeg
 
-# Initialize Whisper model once (small or base recommended for speed)
-@st.cache_resource
+st.set_page_config(page_title="Gemini + Whisper Video Summarizer", layout="wide")
+st.title("🎥 Gemini + Whisper Video Summarizer")
+
+# Load Whisper model WITHOUT caching to avoid errors on Streamlit Cloud
 def load_whisper_model():
     return whisper.load_model("base")
 
 model = load_whisper_model()
 
-st.set_page_config(page_title="Gemini + Whisper Video Summarizer", layout="wide")
-st.title("🎥 Gemini + Whisper Video Summarizer")
-
-# Sidebar for Google API Key and task
+# Sidebar inputs
 with st.sidebar:
     st.header("Settings")
     api_key = st.text_input("Google API Key", type="password")
@@ -28,7 +26,7 @@ with st.sidebar:
 
     task = st.radio("Choose task:", ["Summary (3 sentences)", "Full transcription", "Main points", "Brief explanation"])
 
-# Tabs for input method
+# Tabs for YouTube URL or file upload
 tab1, tab2 = st.tabs(["📺 YouTube URL", "📁 Upload Video"])
 
 fetch = False
@@ -47,7 +45,6 @@ with tab2:
         fetch = True
         video_source = "upload"
 
-# Helper functions
 def create_txt_file(text):
     return io.BytesIO(text.encode('utf-8'))
 
@@ -59,17 +56,15 @@ def create_docx_file(text):
     f.seek(0)
     return f
 
-# Transcribe video locally with Whisper
 def transcribe_video(file_path):
     result = model.transcribe(file_path)
     return result["text"]
 
-# Main logic
 if api_key:
     os.environ["GOOGLE_API_KEY"] = api_key
     client = genai.Client()
 
-    # Retry logic for Gemini
+    # Retry logic for Gemini API
     is_retriable = lambda e: (isinstance(e, genai.errors.APIError) and e.code in {429, 503})
     if not hasattr(genai.models.Models.generate_content, '__wrapped__'):
         genai.models.Models.generate_content = retry.Retry(predicate=is_retriable)(
@@ -87,7 +82,6 @@ if api_key:
 
         try:
             if video_source == "youtube":
-                # Use Gemini directly on YouTube URL
                 with st.spinner("Processing YouTube video with Gemini..."):
                     response = client.models.generate_content(
                         model='models/gemini-2.0-flash',
@@ -101,7 +95,6 @@ if api_key:
                     text_output = response.text
 
             elif video_source == "upload":
-                # Save uploaded file temporarily
                 with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp_file:
                     tmp_file.write(uploaded_file.read())
                     tmp_filepath = tmp_file.name
@@ -109,10 +102,8 @@ if api_key:
                 with st.spinner("Transcribing uploaded video with Whisper..."):
                     transcript = transcribe_video(tmp_filepath)
 
-                # Remove temp file
                 os.remove(tmp_filepath)
 
-                # Send transcript text to Gemini for further processing
                 with st.spinner("Processing transcript with Gemini..."):
                     response = client.models.generate_content(
                         model='models/gemini-2.0-flash',
@@ -128,7 +119,6 @@ if api_key:
             st.markdown(f"### 📋 {task}")
             st.write(text_output)
 
-            # Download buttons
             txt_file = create_txt_file(text_output)
             docx_file = create_docx_file(text_output)
 
