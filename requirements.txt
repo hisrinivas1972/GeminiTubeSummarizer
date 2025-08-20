@@ -1,3 +1,4 @@
 streamlit
 google-genai==1.7.0
 python-docx
+google-api-core
