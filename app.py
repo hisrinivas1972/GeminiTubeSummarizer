@@ -1,26 +1,32 @@
 import streamlit as st
-import subprocess
+import whisper
+import tempfile
+import os
 
-st.title("🐍 Whisper + ffmpeg Debug Demo")
+st.title("🎤 Whisper Video/Audio Transcriber")
 
-# Check if ffmpeg is available
-try:
-    result = subprocess.run(["ffmpeg", "-version"], capture_output=True, text=True)
-    st.write("✅ ffmpeg found:", result.stdout.splitlines()[0])
-except Exception as e:
-    st.error(f"❌ ffmpeg check error: {e}")
+uploaded_file = st.file_uploader("Upload a video or audio file", type=["mp4", "mkv", "mp3", "wav", "mov"])
 
-# Try to import whisper and load model
-try:
-    import whisper
-    st.write("✅ whisper package imported")
+@st.cache_resource
+def load_model():
+    return whisper.load_model("tiny")  # lightweight model for faster transcription
 
-    @st.cache_resource
-    def load_model():
-        return whisper.load_model("tiny")  # lighter model to test
-
+if uploaded_file:
     model = load_model()
-    st.success("✅ Whisper 'tiny' model loaded successfully!")
+    
+    # Save uploaded file to temp file
+    with tempfile.NamedTemporaryFile(delete=False) as temp_file:
+        temp_file.write(uploaded_file.read())
+        temp_file_path = temp_file.name
 
-except Exception as e:
-    st.error(f"❌ Error loading whisper model: {e}")
+    st.info("Transcribing... this may take a while depending on file size and model.")
+
+    # Run transcription
+    result = model.transcribe(temp_file_path)
+    transcript = result["text"]
+
+    st.subheader("📝 Transcript")
+    st.write(transcript)
+
+    # Clean up temp file
+    os.remove(temp_file_path)
