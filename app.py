@@ -1,6 +1,10 @@
-import os
 import streamlit as st
+import subprocess
 
-st.write("Current directory:", os.getcwd())
-st.write("Files here:", os.listdir())
-st.write("Files in .streamlit:", os.listdir(".streamlit") if os.path.exists(".streamlit") else "No .streamlit folder")
+st.title("ffmpeg check")
+
+try:
+    result = subprocess.run(["ffmpeg", "-version"], capture_output=True, text=True)
+    st.write("✅ ffmpeg found:", result.stdout.splitlines()[0])
+except Exception as e:
+    st.error(f"❌ ffmpeg NOT found: {e}")
